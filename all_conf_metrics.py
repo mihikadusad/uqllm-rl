@@ -21,10 +21,23 @@ def parse_args():
         default="meta-llama/Llama-3.2-1B-Instruct"
     )
     parser.add_argument(
+        "--dataset",
+        type=str,
+        default="math500train",
+        choices=["math500", "math500train", "aime2024", "aime2025", "aime2025-2"],
+        help="Which dataset to run on."
+    )
+    parser.add_argument(
         "--hf_token", 
         type=str, 
         required=True
     )
+    parser.add_argument(
+        "--policy_model",
+        type=str,
+        default="Qwen2.5-Math-7B-Instruct",
+        help="Which reasoning model to use."
+    )    
     parser.add_argument(
         "--prm_model_name",
         type=str,
@@ -79,7 +92,7 @@ def parse_args():
     parser.add_argument("
         --subset_size", 
         type=int, 
-        default=1000,
+        default=None,
         help="Random subset size for faster runs."
     )
     parser.add_argument(
@@ -227,7 +240,7 @@ def build_sampling_params(args):
             prompt_logprobs=args.topk_logprobs
         )
 
-def score_with_prm_batched(prm, questions: List[str], traces: List[str], batch_size: int = 16):
+def score_with_prm_batched(prm, questions: List[str], traces: List[str], batch_size: int = 1):
     """
     questions: List[str] length N
     traces:    List[str] length N  (the reasoning text to score)
@@ -237,7 +250,8 @@ def score_with_prm_batched(prm, questions: List[str], traces: List[str], batch_s
     out = []
     for i in tqdm(range(0, len(questions), batch_size), desc="PRM scoring", leave=False):
         q_batch = questions[i:i+batch_size]
-        t_batch = traces[i:i+batch_size]
+        t_batch = [[prefix] for prefix in traces[i:i+batch_size]]
+        t_batch = [item.replace(None, "") for item in t_batch]
         scores = prm.score(q_batch, t_batch)   # List[float] or List[List[float]]
         # Normalize to List[List[float]]
         if len(scores) and not isinstance(scores[0], (list, tuple, np.ndarray)):
@@ -250,7 +264,7 @@ def main():
     random.seed(args.seed)
     np.random.seed(args.seed)
 
-    dataset_path = "math500/Qwen2.5-Math-7B-Instruct/data.json"
+    dataset_path = f"{dataset}/{policy_model}/data.json"
     ds = load_dataset(args.dataset_name, data_files=dataset_path, split="train")
 
     if args.subset_size and args.subset_size < len(ds):
@@ -261,13 +275,15 @@ def main():
     reasoning_prefixes = [row.get("reasoning_prefix", "") for row in ds]
 
     success_probs = None
-    if "success_prob" in ds.column_names:
+    try:
         success_probs = [row["success_prob"] for row in ds]
+    except:
+        raise KeyError
 
     prompt_template = get_prompt_format(args.model_id)
     prompts = [
-        prompt_template.replace("{input}", q) + (rp or "")
-        for q, rp in zip(questions, reasoning_prefixes)
+        prompt_template.replace("{input}", q) + (prefix or "")
+        for q, prefix in zip(questions, reasoning_prefixes)
     ]
 
     sampling_params = build_sampling_params(args)
@@ -319,9 +335,8 @@ def main():
         peft_model = PeftModelForCausalLM.from_pretrained(prm.model, args.prm_peft_dir)
         peft_model.eval()
 
-    traces = [rp or "" for rp in reasoning_prefixes]
     prm_scores_per_prompt = score_with_prm_batched(
-        prm, questions, traces, batch_size=args.prm_batch_size
+        prm, questions, reasoning_prefixes, batch_size=args.prm_batch_size
     )
 
     output_data = []
