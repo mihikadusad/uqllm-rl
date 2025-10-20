@@ -72,6 +72,8 @@ class QwenPRM(RewardModel):
                 # You might have multi-step text separated by "\n\n" or some other delimiter
                 steps_list = ans.split("\n\n")
 
+                print('Number of steps:')
+                print(len(steps_list))
                 # Construct Qwen conversation
                 messages = [
                     {"role": "system", "content": "Please reason step by step, and put your final answer in \\boxed{}."},
