@@ -261,6 +261,10 @@ def lowest_group_confidence(group_confs: List[Optional[float]]) -> Optional[floa
     vals = [v for v in group_confs if v is not None]
     return min(vals) if vals else None
 
+def top_group_confidence(group_confs: List[Optional[float]]) -> Optional[float]:
+    vals = [v for v in group_confs if v is not None]
+    return max(vals) if vals else None
+
 
 def tail_confidence(reasoning_conf: List[Optional[float]], tail_tokens: int) -> Optional[float]:
     vals = [v for v in reasoning_conf if v is not None]
@@ -301,9 +305,9 @@ def main():
     args = parse_args()
     random.seed(args.seed)
     np.random.seed(args.seed)
-
-    #dataset_path = f"{args.dataset}/{args.model_id}/data.json"
-    dataset_path = "aime2024/Llama-3.2-1B-Instruct/data.json"
+    slash_indx = args.model_id.index('/')
+    dataset_path = f"{args.dataset}/{args.model_id[slash_indx+1:]}/data.json"
+    #dataset_path = "math500/Llama-3.2-3B-Instruct/data.json"
     ds = load_dataset(args.dataset_name, data_files=dataset_path, split="train")
 
     if args.subset_size and args.subset_size < len(ds):
@@ -322,7 +326,7 @@ def main():
     try:
         success_probs = [row["success_prob"] for row in ds]
     except:
-        success_probs = [0]*len(ds)
+        raise ValueError
 
     # len(questions) = len(reasoning_prefixes) = len(success_probs)
 
@@ -367,6 +371,7 @@ def main():
         group_confs = group_confidence_sliding(reasoning_conf, window=group_window)
         conf_bottom10 = bottom10_group_confidence(group_confs)
         conf_lowest = lowest_group_confidence(group_confs)
+        conf_top = top_group_confidence(group_confs)
         conf_tail = tail_confidence(reasoning_conf, tail_tokens=tail_len) 
         
         rec = {
@@ -379,6 +384,7 @@ def main():
                 "reasoning_group_conf_per_pos": group_confs,
                 "reasoning_bottom10_group_confidence": conf_bottom10,
                 "reasoning_lowest_group_confidence": conf_lowest,
+                "reasoning_highest_group_confidene": conf_top,
                 "reasoning_tail_confidence": conf_tail,
             },
             "prompt_topk_logprobs": prompt_topk_logprobs,
